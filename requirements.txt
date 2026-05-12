@@ -1,0 +1,9 @@
+pandas
+streamlit
+vaderSentiment
+textblob
+scikit-learn
+nltk
+matplotlib
+wordcloud
+Pillow

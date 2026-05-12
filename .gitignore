@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# Secrets — never commit these
+.env
+
+# Outputs (generated files, not source)
+git add .
+git commit -m "Add outputs folder with CSV and visualizations"
+git push origin main
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
