@@ -1,24 +1,28 @@
 """
-app.py  –  Music Sentiment Analysis Dashboard
+app.py  –  EchoMood Dashboard
 ----------------------------------------------
 Run with:  streamlit run app.py
 
-Expects the following layout (all relative to this file):
+EchoMood:
+A Scalable NLP Pipeline for Music Discussion Sentiment Analysis
+
+Expects the following layout:
+
     outputs/
-        analyzed_music_posts.csv   ← produced by your crawler / analysis script
+        analyzed_music_posts.csv
         sentiment_distribution.png
         top_common_words.png
-        sentiment_over_time.png    ← optional, shown only if present
+        sentiment_over_time.png    ← optional
         topic_sentiment.png        ← optional
         wordcloud.png              ← optional
 
 The CSV must have at minimum these columns:
+
     clean_text, sentiment, datetime
 
-textblob_sentiment is computed on-the-fly here if the column is missing.
+textblob_sentiment is computed on-the-fly if the column is missing.
 """
 
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -32,30 +36,45 @@ from nlp_pipeline import (
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
+PROJECT_TITLE = "EchoMood: A Scalable NLP Pipeline for Music Discussion Sentiment Analysis"
 OUTPUTS = Path("outputs")
 
 st.set_page_config(
-    page_title="Music Sentiment Analysis Dashboard",
+    page_title="EchoMood",
     layout="wide",
 )
 
-st.title("Music Discussion Sentiment Analysis Pipeline")
-st.caption("Data sourced from 4chan /mu/ · NLP: VADER + TextBlob · Vectorisation: TF-IDF")
+st.title(PROJECT_TITLE)
+st.caption(
+    "Data sourced from 4chan /mu/ · NLP: VADER + TextBlob · Vectorization: TF-IDF"
+)
 
 # ── Load data ────────────────────────────────────────────────────────────────
 
 @st.cache_data
 def load_data() -> pd.DataFrame:
-    df = pd.read_csv(OUTPUTS / "analyzed_music_posts.csv")
+    csv_candidates = [
+        OUTPUTS / "analyzed_music_posts.csv",
+        Path("analyzed_music_posts.csv"),
+    ]
 
-    # Add textblob_sentiment if the CSV doesn't have it yet
+    csv_path = next((p for p in csv_candidates if p.exists()), None)
+
+    if csv_path is None:
+        st.error(
+            "Could not find analyzed_music_posts.csv. "
+            "Run the pipeline first, or copy the file into outputs/."
+        )
+        st.stop()
+
+    df = pd.read_csv(csv_path)
+
     if "textblob_sentiment" not in df.columns:
-        with st.spinner("Computing TextBlob sentiment (first run only)…"):
+        with st.spinner("Computing TextBlob sentiment..."):
             df["textblob_sentiment"] = df["clean_text"].fillna("").apply(
                 textblob_sentiment
             )
 
-    # Parse datetime
     if "datetime" in df.columns:
         df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
         df["date"] = df["datetime"].dt.date
@@ -67,68 +86,98 @@ df = load_data()
 
 # ── Overview metrics ─────────────────────────────────────────────────────────
 
-st.subheader("Dataset overview")
+st.subheader("Dataset Overview")
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Total posts", f"{len(df):,}")
+    st.metric("Total Posts", f"{len(df):,}")
+
 with col2:
     agree = (df["sentiment"] == df["textblob_sentiment"]).mean()
-    st.metric("VADER / TextBlob agreement", f"{agree:.1%}")
+    st.metric("VADER / TextBlob Agreement", f"{agree:.1%}")
+
 with col3:
     top_sent = df["sentiment"].value_counts().idxmax()
-    st.metric("Dominant sentiment", top_sent.capitalize())
+    st.metric("Dominant Sentiment", top_sent.capitalize())
+
 with col4:
     if "date" in df.columns:
         span = df["datetime"].dropna()
-        days = (span.max() - span.min()).days
-        st.metric("Date span (days)", days)
+
+        if not span.empty:
+            days = (span.max() - span.min()).days
+            st.metric("Date Span", f"{days} days")
+        else:
+            st.metric("Date Span", "N/A")
 
 # ── Sentiment distribution ───────────────────────────────────────────────────
 
-st.subheader("Sentiment distribution")
-sentiment_counts = df["sentiment"].value_counts().rename_axis("Sentiment").reset_index(name="Posts")
+st.subheader("Sentiment Distribution")
+
+sentiment_counts = (
+    df["sentiment"]
+    .value_counts()
+    .rename_axis("Sentiment")
+    .reset_index(name="Posts")
+)
+
 st.bar_chart(sentiment_counts.set_index("Sentiment"))
 
 # ── VADER vs TextBlob ────────────────────────────────────────────────────────
 
-st.subheader("VADER vs TextBlob comparison")
+st.subheader("VADER vs TextBlob Comparison")
+
 comparison = pd.crosstab(
     df["sentiment"],
     df["textblob_sentiment"],
     rownames=["VADER"],
     colnames=["TextBlob"],
 )
+
 st.dataframe(comparison, use_container_width=True)
 
 # ── TF-IDF word analysis ─────────────────────────────────────────────────────
 
-st.subheader("Top words by TF-IDF score")
+st.subheader("Top Words by TF-IDF Score")
+
 st.caption(
-    "TF-IDF surfaces distinctive words per sentiment class — not just the "
-    "most frequent overall (which are mostly stop words)."
+    "TF-IDF surfaces distinctive words per sentiment class, rather than only "
+    "the most frequent words overall."
 )
 
-tfidf_tab1, tfidf_tab2 = st.tabs(["Overall", "By sentiment"])
+tfidf_tab1, tfidf_tab2 = st.tabs(["Overall", "By Sentiment"])
 
 with tfidf_tab1:
     top_overall = tfidf_top_words(df["clean_text"], n=20)
+
     if not top_overall.empty:
         st.bar_chart(top_overall.set_index("word")["tfidf_score"])
+    else:
+        st.info("No TF-IDF terms available for the current dataset.")
 
 with tfidf_tab2:
     per_class = tfidf_by_sentiment(df, n=10)
-    cols = st.columns(len(per_class))
-    for col, (label, frame) in zip(cols, per_class.items()):
-        with col:
-            st.markdown(f"**{label.capitalize()}**")
-            if not frame.empty:
-                st.bar_chart(frame.set_index("word")["tfidf_score"])
 
-# ── Sentiment over time ───────────────────────────────────────────────────────
+    if per_class:
+        cols = st.columns(len(per_class))
+
+        for col, (label, frame) in zip(cols, per_class.items()):
+            with col:
+                st.markdown(f"**{label.capitalize()}**")
+
+                if not frame.empty:
+                    st.bar_chart(frame.set_index("word")["tfidf_score"])
+                else:
+                    st.info("No terms available.")
+    else:
+        st.info("No sentiment classes available for TF-IDF comparison.")
+
+# ── Sentiment over time ──────────────────────────────────────────────────────
 
 if "date" in df.columns and df["date"].notna().any():
-    st.subheader("Sentiment over time")
+    st.subheader("Sentiment Over Time")
+
     time_df = (
         df.groupby(["date", "sentiment"])
         .size()
@@ -136,45 +185,66 @@ if "date" in df.columns and df["date"].notna().any():
         .pivot(index="date", columns="sentiment", values="count")
         .fillna(0)
     )
+
     st.line_chart(time_df)
 
-# ── Static visualisations (optional, shown only if files exist) ──────────────
+# ── Static visualizations ────────────────────────────────────────────────────
 
 image_specs = [
-    ("sentiment_distribution.png", "Sentiment distribution"),
-    ("top_common_words.png",        "Top common words (raw counts)"),
-    ("sentiment_over_time.png",     "Sentiment trends over time"),
-    ("topic_sentiment.png",         "Topic sentiment"),
-    ("wordcloud.png",               "Word cloud"),
+    ("sentiment_distribution.png", "Sentiment Distribution"),
+    ("top_common_words.png", "Top Common Words"),
+    ("sentiment_over_time.png", "Sentiment Trends Over Time"),
+    ("topic_sentiment.png", "Topic Sentiment"),
+    ("wordcloud.png", "Word Cloud"),
 ]
 
-available = [(fn, cap) for fn, cap in image_specs if (OUTPUTS / fn).exists()]
+available = [
+    (filename, caption)
+    for filename, caption in image_specs
+    if (OUTPUTS / filename).exists()
+]
 
 if available:
-    st.subheader("Saved visualisations")
+    st.subheader("Saved Visualizations")
+
     for i in range(0, len(available), 2):
-        pair = available[i : i + 2]
+        pair = available[i:i + 2]
         cols = st.columns(len(pair))
-        for col, (fn, cap) in zip(cols, pair):
-            col.image(str(OUTPUTS / fn), caption=cap)
+
+        for col, (filename, caption) in zip(cols, pair):
+            col.image(str(OUTPUTS / filename), caption=caption)
 
 # ── Sample posts ─────────────────────────────────────────────────────────────
 
-st.subheader("Sample analysed posts")
+st.subheader("Sample Analyzed Posts")
 
 sentiment_filter = st.selectbox(
     "Filter by sentiment",
     ["All"] + sorted(df["sentiment"].dropna().unique().tolist()),
 )
 
-display_df = df if sentiment_filter == "All" else df[df["sentiment"] == sentiment_filter]
+if sentiment_filter == "All":
+    display_df = df
+else:
+    display_df = df[df["sentiment"] == sentiment_filter]
 
-display_cols = ["clean_text", "sentiment", "textblob_sentiment"]
+display_cols = [
+    "clean_text",
+    "sentiment",
+    "textblob_sentiment",
+]
+
 if "date" in display_df.columns:
     display_cols = ["date"] + display_cols
-available_cols = [c for c in display_cols if c in display_df.columns]
+
+available_cols = [
+    col for col in display_cols
+    if col in display_df.columns
+]
 
 st.dataframe(
-    display_df[available_cols].dropna(subset=["clean_text"]).head(50),
+    display_df[available_cols]
+    .dropna(subset=["clean_text"])
+    .head(50),
     use_container_width=True,
 )

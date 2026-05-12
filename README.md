@@ -1,10 +1,11 @@
-# /mu/ Sentiment Analysis Crawler
+````md
+# EchoMood: A Scalable NLP Pipeline for Music Discussion Sentiment Analysis
 
-Crawls 4chan's `/mu/` board, runs NLP analysis on posts, and serves results in a Streamlit dashboard. Built during Binghamton University CS 415/515 (2024).
+EchoMood crawls 4chan's `/mu/` music board, runs NLP-based sentiment analysis on discussion posts, and serves the results through an interactive Streamlit dashboard. Built for Binghamton University CS 415/515 (2026).
 
 ## Architecture
 
-```
+```text
 scrape_board job
       │
       ▼
@@ -21,16 +22,25 @@ Postgres (TimescaleDB)
       │
       ▼
 app.py  (Streamlit dashboard)
-```
+````
 
 ## NLP concepts used
 
-| Stage | Concept | File |
-|---|---|---|
-| Cleaning | Tokenisation, stopword removal, lemmatisation | `nlp_pipeline.py` |
-| Scoring | VADER sentiment, TextBlob polarity | `nlp_pipeline.py` |
-| Vectorisation | TF-IDF (replaces raw word counts) | `nlp_pipeline.py` |
-| Pipeline | Faktory producer/consumer, async job queue | `crawler_worker.py` |
+| Stage         | Concept                                       | File                |
+| ------------- | --------------------------------------------- | ------------------- |
+| Cleaning      | Tokenization, stopword removal, lemmatization | `nlp_pipeline.py`   |
+| Scoring       | VADER sentiment, TextBlob polarity            | `nlp_pipeline.py`   |
+| Vectorization | TF-IDF feature extraction                     | `nlp_pipeline.py`   |
+| Pipeline      | Faktory producer/consumer, async job queue    | `crawler_worker.py` |
+
+## Data collection
+
+Posts are fetched live from the [4chan public JSON API](https://github.com/4chan/4chan-API). No authentication is required.
+
+* Board catalog: `https://a.4cdn.org/mu/catalog.json`
+* Per-thread posts: `https://a.4cdn.org/mu/thread/{thread_id}.json`
+
+Raw JSON is processed in memory and written to Postgres. A 1-second courtesy delay between requests helps avoid rate-limiting.
 
 ## Setup
 
@@ -42,36 +52,45 @@ source env/dev/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. NLTK data (first run only)
+For Windows PowerShell:
+
+```powershell
+.\env\dev\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### 2. NLTK data
 
 ```python
 import nltk
+
 for pkg in ["punkt", "stopwords", "wordnet", "omw-1.4", "punkt_tab"]:
     nltk.download(pkg)
 ```
 
 ### 3. Environment variables
 
-Copy `.env.example` to `.env` and fill in:
+Create a `.env` file:
 
-```
+```env
 FAKTORY_URL=tcp://:password@localhost:7419
 DATABASE_URL=postgres://postgres:testpassword@localhost:5432/chan_crawler
 BOARD=mu
 REQUEST_DELAY=1.0
 ```
 
-### 4. Postgres (TimescaleDB via Docker)
+### 4. Postgres / TimescaleDB
 
 ```bash
 docker pull timescale/timescaledb-ha:pg16
+
 docker run -d --name timescaledb \
   -p 5432:5432 \
   -e POSTGRES_PASSWORD=testpassword \
   timescale/timescaledb-ha:pg16
 ```
 
-### 5. Faktory (job queue)
+### 5. Faktory job queue
 
 ```bash
 docker run -it --name faktory \
@@ -83,34 +102,71 @@ docker run -it --name faktory \
   /faktory -b :7419 -w :7420
 ```
 
-Faktory Web UI: http://localhost:7420
+Faktory Web UI:
+
+```text
+http://localhost:7420
+```
 
 ## Running the pipeline
 
-```bash
-# Terminal 1 – start worker (consumers)
-python crawler_worker.py consume
+Start the worker:
 
-# Terminal 2 – kick off a full board scrape
+```bash
+python crawler_worker.py consume
+```
+
+In a second terminal, start a board scrape:
+
+```bash
 python crawler_worker.py produce
 ```
 
 ## Running the dashboard
 
+The dashboard reads from the `outputs/` folder.
+
 ```bash
-# Put your analyzed CSV in outputs/ first
 mkdir -p outputs
+cp analyzed_music_posts.csv outputs/
+cp sentiment_distribution.png outputs/
+cp top_common_words.png outputs/
+streamlit run app.py
+```
+
+For Windows PowerShell:
+
+```powershell
+mkdir outputs
+Copy-Item analyzed_music_posts.csv outputs/
+Copy-Item sentiment_distribution.png outputs/
+Copy-Item top_common_words.png outputs/
 streamlit run app.py
 ```
 
 ## Project layout
 
-```
+```text
 .
-├── nlp_pipeline.py      # text cleaning, sentiment, TF-IDF
-├── crawler_worker.py    # Faktory jobs: scrape → NLP → Postgres
-├── app.py               # Streamlit dashboard
+├── app.py                         # Streamlit dashboard
+├── crawler_worker.py              # Faktory jobs: scrape → NLP → Postgres
+├── nlp_pipeline.py                # text cleaning, sentiment, TF-IDF
 ├── requirements.txt
-├── .env                 # secrets (gitignored)
-└── outputs/             # generated CSVs and PNGs (gitignored)
+├── README.md
+├── .env                           # local secrets, gitignored
+├── analyzed_music_posts.csv       # sample analyzed dataset
+├── sentiment_distribution.png     # pre-generated visualization
+├── top_common_words.png           # pre-generated visualization
+├── data/                          # optional raw/intermediate data
+├── outputs/                       # dashboard-ready outputs
+└── reports/                       # project report files
 ```
+
+## Project summary
+
+EchoMood demonstrates a complete NLP data pipeline for online music discussion analysis. It combines live data collection, asynchronous job processing, text preprocessing, dual-model sentiment scoring, TF-IDF term analysis, persistent database storage, and dashboard-based visualization.
+
+The system is designed to be modular: `crawler_worker.py` handles data ingestion and job orchestration, `nlp_pipeline.py` contains reusable NLP functions, and `app.py` presents the results through a user-facing dashboard.
+
+```
+
